@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garden — single source of truth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#33402f; --ink-soft:#5d6b56;
+    --terra:#d98b5f; --terra-deep:#bf6b3f;
+    --leaf:#4f8a5b; --leaf-deep:#2f6b40;
+    --card:#fffdf8; --line:#e3ddcd;
+    --wilt:#c79a4f; --alert:#cf6a5a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Nunito',sans-serif;color:var(--ink);
+    background:radial-gradient(120% 80% at 50% -10%, #cfe9d8 0%, #eef6ea 55%, #f4f1e6 100%);
+    min-height:100vh;padding:26px clamp(16px,4vw,56px) 60px;
+    transition:background .8s ease;
+  }
+  body.allclear{background:radial-gradient(120% 90% at 50% -10%, #c4e7cf 0%, #e6f4e6 55%, #f1f6e6 100%)}
+  .wrap{max-width:1180px;margin:0 auto}
+
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px}
+  .greeting .small{font-size:.78rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);font-weight:700}
+  .greeting h1{font-family:'Fraunces',serif;font-size:clamp(1.7rem,4vw,2.5rem);font-weight:600;line-height:1.05;margin-top:4px}
+  .greeting h1 em{font-style:italic;color:var(--terra-deep)}
+  .weather{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-weight:700;color:var(--ink);box-shadow:0 6px 18px rgba(80,100,70,.08);white-space:nowrap}
+
+  /* subtle status line: loading / refreshed / stale-fallback */
+  .status{display:flex;align-items:center;gap:8px;justify-content:center;margin:-6px 0 18px;
+    font-size:.74rem;color:var(--ink-soft);font-weight:700;letter-spacing:.04em;min-height:18px;transition:opacity .3s}
+  .status .pip{width:7px;height:7px;border-radius:50%;background:var(--leaf)}
+  .status.loading .pip{background:var(--wilt);animation:pulse 1s ease-in-out infinite}
+  .status.stale .pip{background:var(--wilt)}
+  .status.error .pip{background:var(--alert)}
+  @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+
+  .plots{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  @media(max-width:820px){.plots{grid-template-columns:1fr}}
+
+  .plot{
+    background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden;
+    box-shadow:0 10px 26px rgba(70,90,60,.09);display:flex;flex-direction:column;
+    transition:transform .2s ease, box-shadow .2s ease;
+  }
+  .plot:hover{transform:translateY(-3px);box-shadow:0 16px 34px rgba(70,90,60,.15)}
+
+  .bed-visual{position:relative}
+  .bed-visual svg{display:block;width:100%;height:auto}
+
+  /* hover tooltip on a plant */
+  .tip{
+    position:absolute;pointer-events:none;opacity:0;transform:translateY(4px);
+    transition:opacity .15s ease, transform .15s ease;
+    background:#33402f;color:#fbf7ee;font-size:.76rem;font-weight:600;
+    padding:6px 10px;border-radius:9px;white-space:nowrap;z-index:5;
+    box-shadow:0 8px 18px rgba(0,0,0,.18);
+  }
+  .tip::after{content:'';position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);
+    border:5px solid transparent;border-top-color:#33402f}
+  .tip.show{opacity:1;transform:translateY(0)}
+  .plant-hit{cursor:pointer}
+
+  .bed-body{padding:14px 16px 16px}
+  .head{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+  .icon{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:1rem;flex:0 0 auto}
+  h3{font-family:'Fraunces',serif;font-weight:600;font-size:1.1rem}
+  .state{margin-left:auto;font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px}
+  .s-good{background:#e2f0e4;color:var(--leaf-deep)}
+  .s-wilt{background:#f7ecd2;color:var(--wilt)}
+  .s-alert{background:#fae3de;color:var(--alert)}
+
+  .row{display:flex;align-items:center;gap:9px;padding:8px 0;border-top:1px dashed var(--line)}
+  .row:first-of-type{border-top:none}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .who{font-weight:700;font-size:.92rem}
+  .age{margin-left:auto;font-size:.74rem;color:var(--ink-soft);white-space:nowrap}
+  .src{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--terra-deep)}
+  .ttl{font-size:.88rem;font-weight:600;line-height:1.3;margin-top:1px}
+  .ttl a{color:inherit;text-decoration:none}
+  .ttl a:hover{text-decoration:underline}
+  .time{font-weight:700;color:var(--ink)}
+
+  /* the calm "nothing needs you" message that replaces rows */
+  .clear-note{display:flex;align-items:center;gap:8px;padding:10px 0 2px;color:var(--leaf-deep);font-weight:700;font-size:.9rem}
+  .clear-note .bud{font-size:1.05rem}
+  /* small caption under the meadow noting handled count */
+  .meadow-note{font-size:.72rem;color:var(--ink-soft);font-weight:600;padding:6px 0 0}
+
+  .sway{transform-box:fill-box;transform-origin:bottom center;animation:sway 5s ease-in-out infinite}
+  @keyframes sway{0%,100%{transform:rotate(-2.5deg)}50%{transform:rotate(2.5deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="greeting">
+      <div class="small" id="clock">—</div>
+      <h1 id="hello">Good morning.</h1>
+    </div>
+    <div class="weather" id="weather">🌱</div>
+  </header>
+
+  <div class="status loading" id="status"><span class="pip"></span><span id="status-text">Tending the garden…</span></div>
+
+  <div class="plots" id="plots"></div>
+</div>
+
+<script>
+/* =========================================================================
+   Garden frontend — renders live state from GET /api/state.
+
+   Contract (one object):
+   {
+     "meta":   { "clock":"Tue · 7:02", "greeting":"Morning, <em>Martin.</em>",
+                 "weather":"☁️ 58°", "stale": false },
+     "beds": {
+       "email":   { "icon","iconBg","title",
+                    "front":[ {"id","who","preview","age","level":"alert|wilt|normal"} ],
+                    "background":[ {"id","who","preview"} ] },
+       "messages":{ ...same as email... },
+       "news":    { "icon","iconBg","title", "items":[ {"source","title","url"} ] },
+       "today":   { "icon","iconBg","title", "events":[ {"time","title"} ] }
+     }
+   }
+
+   email/messages are "actionable" beds: front items are upright plants + list
+   rows; background items are the smaller, paler receding meadow. news/today are
+   informational: a simple list + decorative plants, no meadow mechanic.
+   ========================================================================= */
+
+const BED_ORDER = ['email','messages','news','today'];
+const ACTIONABLE = new Set(['email','messages']);
+const BG_RENDER_CAP = 12;   // PRD §6: cap visible meadow plants; badge still shows true count
+
+/* ---------- geometry ---------- */
+const W=280,H=150,soilY=120,backY=soilY-15,pad=38;
+function plantX(i,n){ return n<=1 ? W/2 : pad + i*(W-2*pad)/(n-1); }
+// deterministic pseudo-random height by index (decorative, stable across refreshes)
+function heightFor(i,base,spread){ return base + ((i*37)%spread); }
+
+/* ---------- a front plant: upright, green; droops + reddens if level==='alert' ---------- */
+function frontPlant(x,h,level,delay,tip){
+  const topY=soilY-h, droop=level==='alert', tilt=droop?20:0;
+  const lb=droop?'#c79a4f':'#5aa06a', lc=droop?'#d9c277':'#86c08f';
+  const budFill=droop?'#cf6a5a':(level==='wilt'?'#cdbc7d':'#86c08f');
+  return `<g class="sway plant-hit" style="animation-delay:${delay}s" data-tip="${esc(tip)}" data-x="${x}" data-y="${topY}">
+    <g transform="rotate(${tilt} ${x} ${soilY})">
+    <rect x="${x-2.5}" y="${topY}" width="5" height="${h}" rx="2" fill="#2f6b40"/>
+    <path d="M${x} ${soilY-h*0.5} q-22 -6 -26 -24 q20 2 26 20Z" fill="${lb}"/>
+    <path d="M${x} ${soilY-h*0.72} q22 -6 26 -24 q-20 2 -26 20Z" fill="${lc}"/>
+    <path d="M${x} ${soilY-h*0.88} q-18 -5 -22 -20 q16 2 22 16Z" fill="${lb}"/>
+    <circle cx="${x}" cy="${topY}" r="7" fill="${budFill}"/>
+    </g>
+  </g>`;
+}
+
+/* ---------- a background meadow plant: smaller, paler, set further back ---------- */
+function meadowPlant(x,h,delay,tip){
+  const topY=backY-h;
+  return `<g class="sway plant-hit" style="animation-delay:${delay}s;opacity:.62" data-tip="${esc(tip)}" data-x="${x}" data-y="${topY}">
+    <rect x="${x-1.6}" y="${topY}" width="3.2" height="${h}" rx="1.6" fill="#7fae86"/>
+    <path d="M${x} ${backY-h*0.55} q-13 -4 -16 -15 q12 1 16 12Z" fill="#b7d4ba"/>
+    <path d="M${x} ${backY-h*0.78} q13 -4 16 -15 q-12 1 -16 12Z" fill="#c8e0c9"/>
+    <circle cx="${x}" cy="${topY}" r="4" fill="#b7d4ba"/>
+  </g>`;
+}
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* sky tint reflects the bed's state */
+function skyFor(front){
+  const hasAlert = front.some(f=>f.level==='alert');
+  if(front.length===0) return ['#c8eccf','#eaf6e6'];   // bright, fully calm
+  if(hasAlert)         return ['#d2dcd4','#e7ecdf'];   // muted, greyer
+  return ['#cfe9d8','#e8f3e2'];                          // normal morning
+}
+
+function buildBed(key,cfg){
+  const isAct = ACTIONABLE.has(key);
+  const front = isAct ? (cfg.front||[]) : [];
+  const bg    = isAct ? (cfg.background||[]) : [];
+  const [s1,s2]=skyFor(front);
+  const clear = isAct && front.length===0;
+
+  // meadow (drawn first → sits behind), capped
+  let plants='';
+  const bgShown = bg.slice(0,BG_RENDER_CAP);
+  bgShown.forEach((b,i)=>{
+    const x=plantX(i,Math.max(bgShown.length, isAct?6:1)) + ((i*53)%18 - 9); // gentle jitter
+    plants+=meadowPlant(Math.max(10,Math.min(W-10,x)), heightFor(i,20,16), (i*0.25).toFixed(2), (b.preview||b.who||'handled'));
+  });
+
+  // front upright plants (drawn last → in front)
+  if(isAct){
+    front.forEach((f,i)=>{
+      const x=plantX(i,front.length);
+      plants+=frontPlant(x, heightFor(i,46,18), f.level, (i*0.4).toFixed(2), f.preview||f.who||'');
+    });
+  } else {
+    // informational beds: a few decorative plants from the items/events
+    const items = key==='news' ? (cfg.items||[]) : (cfg.events||[]);
+    items.slice(0,5).forEach((it,i)=>{
+      const x=plantX(i, Math.max(items.length,1));
+      plants+=frontPlant(x, heightFor(i,50,14), 'normal', (i*0.4).toFixed(2),
+        key==='news' ? (it.source||'') : ((it.time||'')+' '+(it.title||'')));
+    });
+  }
+
+  const sun = clear ? '.78' : '.5';
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="garden bed">
+    <defs><linearGradient id="sky-${key}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${s1}"/><stop offset="1" stop-color="${s2}"/></linearGradient></defs>
+    <rect x="0" y="0" width="${W}" height="${H}" fill="url(#sky-${key})"/>
+    <ellipse cx="${W*0.72}" cy="32" rx="19" ry="19" fill="#f6dd8c" opacity="${sun}"/>
+    <path d="M0 96 Q140 78 280 94 V150 H0Z" fill="#bfe0c4"/>
+    <path d="M0 ${soilY} Q140 ${soilY-10} 280 ${soilY} V150 H0Z" fill="#7a5638"/>
+    <path d="M0 ${soilY} Q140 ${soilY-10} 280 ${soilY} V${soilY+9} Q140 ${soilY-1} 0 ${soilY+9}Z" fill="#8a6442" opacity=".7"/>
+    ${plants}
+  </svg>`;
+}
+
+function dotColor(level){
+  return level==='alert' ? 'var(--alert)' : level==='wilt' ? 'var(--wilt)' : 'var(--leaf)';
+}
+
+function bedBody(key,cfg){
+  const isAct = ACTIONABLE.has(key);
+  let badge='', body='';
+
+  if(isAct){
+    const front=cfg.front||[], bg=cfg.background||[];
+    if(front.length===0){
+      badge=`<span class="state s-good">clear</span>`;
+      body=`<div class="clear-note"><span class="bud">🌱</span> Nothing needs you</div>`;
+      if(bg.length) body+=`<div class="meadow-note">${bg.length} tended this week</div>`;
+    } else {
+      const cls = front.some(f=>f.level==='alert') ? 's-alert' : 's-wilt';
+      badge=`<span class="state ${cls}">${front.length}</span>`;
+      front.forEach(f=>{
+        body+=`<div class="row"><span class="dot" style="background:${dotColor(f.level)}"></span>`+
+              `<div class="who">${esc(f.who)}</div>`+
+              `<span class="age">${esc(f.age||'')}</span></div>`;
+      });
+    }
+  } else if(key==='news'){
+    const items=cfg.items||[];
+    badge=`<span class="state s-good">24h</span>`;
+    items.forEach(it=>{
+      const title = it.url ? `<a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>` : esc(it.title);
+      body+=`<div class="row"><div><div class="src">${esc(it.source)}</div><div class="ttl">${title}</div></div></div>`;
+    });
+  } else { // today
+    const events=cfg.events||[];
+    badge=`<span class="state s-good">${events.length}</span>`;
+    events.forEach(ev=>{
+      body+=`<div class="row"><span class="time">${esc(ev.time)}</span><div class="who" style="font-weight:600">${esc(ev.title)}</div></div>`;
+    });
+  }
+
+  return `<div class="head"><div class="icon" style="background:${cfg.iconBg||'#e2f0e4'}">${cfg.icon||'🌿'}</div><h3>${esc(cfg.title||key)}</h3>${badge}</div>${body}`;
+}
+
+function render(state){
+  const meta=state.meta||{}, beds=state.beds||{};
+  document.getElementById('clock').textContent = meta.clock || '';
+  document.getElementById('hello').innerHTML = meta.greeting || 'Good morning.';
+  document.getElementById('weather').innerHTML = meta.weather || '🌱';
+
+  // all-clear when no actionable bed has front items
+  const allClear = [...ACTIONABLE].every(k => !(beds[k] && (beds[k].front||[]).length));
+  document.body.classList.toggle('allclear', allClear);
+
+  const plots=document.getElementById('plots');
+  plots.innerHTML='';
+  BED_ORDER.forEach(key=>{
+    const cfg=beds[key]; if(!cfg) return;
+    const plot=document.createElement('div');
+    plot.className='plot';
+    plot.innerHTML=`<div class="bed-visual">${buildBed(key,cfg)}<div class="tip"></div></div><div class="bed-body">${bedBody(key,cfg)}</div>`;
+    plots.appendChild(plot);
+  });
+  wireHover();
+}
+
+/* hover/tap a plant -> tooltip */
+function wireHover(){
+  document.querySelectorAll('.bed-visual').forEach(vis=>{
+    const tip=vis.querySelector('.tip');
+    vis.querySelectorAll('.plant-hit').forEach(g=>{
+      const show=()=>{
+        const txt=g.dataset.tip; if(!txt) return;
+        tip.textContent=txt; tip.classList.add('show');
+        const rect=vis.getBoundingClientRect();
+        const sx=rect.width/W, sy=rect.height/H;
+        tip.style.left=(parseFloat(g.dataset.x)*sx)+'px';
+        tip.style.top=(parseFloat(g.dataset.y)*sy-34)+'px';
+        tip.style.transform='translateX(-50%)';
+      };
+      const hide=()=>tip.classList.remove('show');
+      g.addEventListener('mouseenter',show);
+      g.addEventListener('mouseleave',hide);
+      g.addEventListener('click',()=>{show();setTimeout(hide,1600);});
+    });
+  });
+}
+
+/* ---------- fetch live state ---------- */
+function setStatus(kind,text){
+  const el=document.getElementById('status');
+  el.className='status'+(kind?' '+kind:'');
+  document.getElementById('status-text').textContent=text;
+}
+
+async function load(){
+  setStatus('loading','Tending the garden…');
+  try{
+    const r=await fetch('/api/state',{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const state=await r.json();
+    render(state);
+    if(state.meta && state.meta.stale) setStatus('stale','Showing last good pull — a source was slow');
+    else setStatus('', 'Fresh' + (state.meta && state.meta.clock ? ' · '+state.meta.clock : ''));
+    setTimeout(()=>{ const el=document.getElementById('status'); if(!el.classList.contains('error')) el.style.opacity='0'; }, 2500);
+  }catch(e){
+    setStatus('error','Could not reach the garden ('+e.message+')');
+  }
+}
+
+load();
+// light background refresh keeps the view warm without nagging
+setInterval(load, 15*60*1000);
+</script>
+</body>
+</html>

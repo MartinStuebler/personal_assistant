@@ -1,0 +1,6 @@
+Flask>=3.0,<4.0
+
+# Added in later milestones:
+# google-api-python-client   # Gmail + Calendar
+# google-auth-oauthlib       # OAuth desktop flow
+# feedparser                 # News RSS
