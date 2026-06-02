@@ -1,9 +1,12 @@
 # --- Secrets & credentials (PRD §9: NEVER commit these) ---
-client_secret.json
+# Glob covers the real download name: client_secret_<id>.apps.googleusercontent.com.json
+client_secret*.json
 token.json
 *.token
 .env
 .env.*
+# keep the (secret-free) template that README points to
+!.env.example
 
 # --- Local data ---
 *.db

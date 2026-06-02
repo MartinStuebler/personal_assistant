@@ -10,19 +10,34 @@ See [`PRD.md`](./PRD.md) for the full spec.
 
 - [x] **Milestone 1 — Skeleton + meadow.** Flask serves the page at `/` and hardcoded
   sample state at `/api/state`. Frontend renders the front/background meadow from the API.
-- [ ] Milestone 2 — Calendar + Gmail connectors (real data via OAuth).
-- [ ] Milestone 3 — News (RSS).
-- [ ] Milestone 4 — iMessage (read-only `chat.db` copy + contacts join).
-- [ ] Milestone 5 — Triage threshold tuning.
-- [ ] Milestone 6 — Background refresh loop + morning pull.
+- [x] **Milestone 2 — Calendar + Gmail connectors.** OAuth desktop flow (read-only
+  scopes), real data pulled into SQLite, triaged into front/background, served at
+  `/api/state`. One-time authorize: `python -m connectors.google_auth`.
+- [x] **Milestone 3 — News (RSS) + scheduled LLM distillation.** RSS pull for four
+  tracks (industrial AI, fintech, healthcare, materials), last 24h, deduped, capped.
+  Headlines are distilled to one calm line by Claude Haiku 4.5 on a background
+  scheduler (every 4h, never on page load); each article summarized once and cached
+  in SQLite, with graceful fallback to the raw headline. Set `ANTHROPIC_API_KEY` in
+  `.env` (see `.env.example`) to enable distillation.
+- [x] **Milestone 4 — iMessage.** Read-only snapshot of `chat.db` (copied with its
+  `-wal`/`-shm` sidecars, opened read-only) + Contacts name join. Automated SMS
+  (shortcodes, OTP/verification, tapback reactions) are filtered out. Needs Full
+  Disk Access for the terminal.
+- [x] **Milestone 5 — Triage threshold tuning.** Messages: inbound counts as "needs
+  you" only within the last 7 days (per-bed window). Email: pull restricted to the
+  Primary tab (`category:primary`) and only unread threads stand front. Calendar:
+  events merged across all readable calendars, each tagged with its source.
+- [ ] Milestone 6 — Background refresh loop + morning pull. *(Partial: news refreshes
+  on the first page-load of a new day so an overnight-slept Mac still updates on wake.)*
 
 ## Run it (local, macOS)
 
 ```bash
-cd persona_assistant
-python3 -m venv venv
+cd personal_assistant
+python3.12 -m venv venv          # PRD §2 needs 3.11+; macOS system python3 is 3.9
 source venv/bin/activate
 pip install -r requirements.txt
+python -m connectors.google_auth  # one-time: browser consent, writes token.json
 python app.py
 # open http://127.0.0.1:5001
 ```
