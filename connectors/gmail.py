@@ -13,6 +13,7 @@ Uses thread metadata only (no bodies) — cheap and enough for the garden view.
 """
 
 import base64  # noqa: F401  (reserved for future body parsing; not used in v1 read-only metadata pull)
+import time
 from email.utils import parseaddr
 
 from googleapiclient.discovery import build
@@ -38,18 +39,26 @@ def _display_name(from_header: str) -> str:
     return name or email or from_header
 
 
-def fetch(creds, max_threads: int = 30) -> list[dict]:
+def fetch(creds, window_seconds: int = 24 * 3600, max_threads: int = 500) -> list[dict]:
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
     me_email = service.users().getProfile(userId="me").execute().get("emailAddress", "")
 
-    # Restrict to the Primary tab so the bed matches what the user actually sees
-    # there — job-application auto-replies, newsletters, etc. live under Gmail's
-    # Updates/Promotions tabs and shouldn't surface as "needs you".
+    # Raw baseline: pull EVERYTHING in the inbox for the recent window — every
+    # category, read or unread, any sender. Nothing hidden by content. The only
+    # triage applied downstream is the simple front/meadow split (inbound vs.
+    # already-replied). Category-/read-based filters were deliberately removed so
+    # the true inbox is visible first; we'll reintroduce filters later once the
+    # real noise is known.
+    #
+    # The 24h window is the only bound: the full inbox is thousands of threads and
+    # one metadata call per thread is too slow to fetch all at once. A time window
+    # (vs. a count cap) keeps the bed to recent activity — what's actually live.
+    after = int(time.time()) - window_seconds
     listed = (
         service.users()
         .threads()
-        .list(userId="me", q="in:inbox category:primary", maxResults=max_threads)
+        .list(userId="me", q=f"in:inbox after:{after}", maxResults=max_threads)
         .execute()
         .get("threads", [])
     )

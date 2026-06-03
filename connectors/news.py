@@ -2,7 +2,8 @@
 News connector — RSS pull for my four tracks (PRD §4.4).
 
 Informational only: no front/background mechanic. Pull last 24h, dedupe by title,
-cap per-track and overall. Headlines + source. The 'source' label shown in the UI
+then keep the single newest item per track — at most four bullets, one per category,
+all four categories distinct. Headlines + source. The 'source' label shown in the UI
 is the track name (matches the mockup: "Industrial AI", "Fintech", …).
 
 Distillation of headlines is handled separately (distill.py), on a schedule — this
@@ -50,8 +51,7 @@ FEEDS: dict[str, list[str]] = {
 }
 
 FRESH_WINDOW = 24 * 3600   # PRD §4.4: keep last 24h
-PER_TRACK_CAP = 3          # balance across tracks before the overall cap
-OVERALL_CAP = 8            # "a handful of headlines per refresh"
+OVERALL_CAP = 4            # one item per category, four distinct categories, max 4
 FEED_TIMEOUT = 10          # seconds per feed; a slow feed must not hang the pull
 
 
@@ -71,22 +71,21 @@ def fetch_articles(now: int | None = None) -> list[dict]:
     now = now or int(time.time())
     socket.setdefaulttimeout(FEED_TIMEOUT)
 
-    collected: list[dict] = []
+    # One bullet per category: gather every fresh, deduped candidate per track, then
+    # keep only the single newest of each. Four distinct tracks -> at most four items,
+    # never two from the same category. (PRD §4.4 tightened: max 4, all different.)
+    winners: list[dict] = []
     seen_titles: set[str] = set()
 
     for track, urls in FEEDS.items():
-        track_count = 0
+        candidates: list[dict] = []
         for url in urls:
-            if track_count >= PER_TRACK_CAP:
-                break
             try:
                 parsed = feedparser.parse(url)
             except Exception:
                 continue  # a broken feed is skipped, not fatal
 
             for entry in parsed.entries:
-                if track_count >= PER_TRACK_CAP:
-                    break
                 title = _clean_title(entry.get("title"))
                 link = (entry.get("link") or "").strip()
                 if not title:
@@ -102,7 +101,7 @@ def fetch_articles(now: int | None = None) -> list[dict]:
                     continue
                 seen_titles.add(key)
 
-                collected.append(
+                candidates.append(
                     {
                         "id": _article_id(link, title),
                         "who": track,          # shown as the source label
@@ -113,7 +112,9 @@ def fetch_articles(now: int | None = None) -> list[dict]:
                         "extra": {"url": link, "track": track},
                     }
                 )
-                track_count += 1
 
-    collected.sort(key=lambda a: a["ts"], reverse=True)
-    return collected[:OVERALL_CAP]
+        if candidates:
+            winners.append(max(candidates, key=lambda a: a["ts"]))  # newest in this track
+
+    winners.sort(key=lambda a: a["ts"], reverse=True)
+    return winners[:OVERALL_CAP]

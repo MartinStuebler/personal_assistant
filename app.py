@@ -166,8 +166,15 @@ def build_state() -> dict:
         app.logger.warning("Pull failed for messages: %s", e)
         fresh = False
 
-    # Email: only unread Primary-tab threads stand front (read = handled).
-    email = triage.triage_actionable(store.get_items("email"), require_unread=True)
+    # Email: raw baseline — show the complete inbox, nothing hidden. Inbound thread
+    # = front plant; a thread I've replied to = meadow. No category/read/sender/age
+    # filtering (filters get reintroduced deliberately later).
+    email = triage.triage_actionable(
+        store.get_items("email"),
+        require_unread=False,
+        apply_mute=False,
+        background_window=None,
+    )
     # Messages: an unanswered text older than a week is no longer "needs you".
     messages = triage.triage_actionable(
         store.get_items("messages"), front_window=triage.MESSAGES_FRONT_WINDOW

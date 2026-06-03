@@ -68,12 +68,20 @@ def triage_actionable(
     now: int | None = None,
     front_window: int | None = None,
     require_unread: bool = False,
+    apply_mute: bool = True,
+    background_window: int | None = BACKGROUND_WINDOW,
 ) -> dict:
     """Split email/messages items into {front, background} per PRD §6.
 
     front_window / require_unread are per-bed gates (see module docstring): an
     inbound item that fails either still recedes into the background meadow if it's
     within BACKGROUND_WINDOW, rather than vanishing.
+
+    apply_mute / background_window let a bed opt out of the extra filtering: the
+    email bed runs a raw baseline (apply_mute=False, background_window=None) so the
+    complete inbox shows with nothing hidden — every inbound thread is a front
+    plant, every already-replied thread is meadow, regardless of category, read
+    state, sender, or age.
     """
     now = now or int(time.time())
     front, background = [], []
@@ -81,7 +89,7 @@ def triage_actionable(
     for it in items:
         age = now - (it.get("ts") or now)
         inbound = it.get("last_from_me") == 0
-        muted = _is_muted(it)
+        muted = apply_mute and _is_muted(it)
         recent_enough = front_window is None or age <= front_window
         unread_ok = (not require_unread) or bool(it.get("unread"))
 
@@ -95,7 +103,7 @@ def triage_actionable(
                     "level": _level(age),
                 }
             )
-        elif age <= BACKGROUND_WINDOW:
+        elif background_window is None or age <= background_window:
             background.append(
                 {
                     "id": it["id"],
