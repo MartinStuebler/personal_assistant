@@ -1,7 +1,7 @@
 """
 Heartbeat connector — price history from a private GitHub repo (dashboard chart).
 
-Reads prices.log from martinius77/github-heartbeat@main via the GitHub REST contents
+Reads prices.log from MartinStuebler/github-heartbeat@main via the GitHub REST contents
 endpoint. Each line is `UTC_timestamp,ticker,price` (e.g. 2026-06-04T14:12Z,SPY,753.32).
 We keep the SPY series for the dashboard's price-history chart.
 
@@ -20,7 +20,7 @@ import time
 
 import requests
 
-REPO = "martinius77/github-heartbeat"
+REPO = "MartinStuebler/github-heartbeat"
 PATH = "prices.log"
 REF = "main"
 TICKER = "SPY"
