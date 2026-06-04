@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garden — sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#33402f; --ink-soft:#5d6b56; --terra-deep:#bf6b3f; --leaf-deep:#2f6b40;
+    --card:#fffdf8; --line:#e3ddcd; --alert:#cf6a5a; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Nunito',sans-serif;color:var(--ink);min-height:100vh;display:grid;place-items:center;
+    padding:24px;background:radial-gradient(120% 80% at 50% -10%, #cfe9d8 0%, #eef6ea 55%, #f4f1e6 100%)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px 28px;
+    box-shadow:0 14px 34px rgba(70,90,60,.14);width:100%;max-width:360px;text-align:center}
+  .sprout{font-size:2rem}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:1.5rem;margin:6px 0 2px}
+  p.sub{color:var(--ink-soft);font-size:.84rem;font-weight:600;margin-bottom:18px}
+  form{display:flex;flex-direction:column;gap:10px}
+  input[type=password]{font-family:inherit;font-size:1rem;padding:11px 14px;border:1px solid var(--line);
+    border-radius:11px;background:#fff;color:var(--ink);outline:none}
+  input[type=password]:focus{border-color:var(--leaf-deep);box-shadow:0 0 0 3px rgba(47,107,64,.12)}
+  button{font-family:inherit;font-weight:700;font-size:1rem;padding:11px 14px;border:none;border-radius:11px;
+    background:var(--leaf-deep);color:#fbf7ee;cursor:pointer;transition:transform .15s ease, background .15s ease}
+  button:hover{background:#27583a;transform:translateY(-1px)}
+  .err{color:var(--alert);font-size:.82rem;font-weight:700;min-height:18px;margin-top:2px}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="sprout">🌱</div>
+    <h1>Garden</h1>
+    <p class="sub">This garden is private. Please sign in.</p>
+    <form method="POST" action="{{ url_for('login') }}" autocomplete="off">
+      <input type="password" name="password" placeholder="Password" aria-label="Password" autofocus required>
+      <button type="submit">Enter the garden</button>
+    </form>
+    <div class="err">{{ error }}</div>
+  </div>
+</body>
+</html>

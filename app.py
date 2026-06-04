@@ -12,13 +12,24 @@ down or unauthorized, we serve stored items and flag the payload stale rather th
 blocking the page on one failing source.
 """
 
+import os
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, send_from_directory
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    render_template_string,
+    request,
+    send_from_directory,
+    session,
+    url_for,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 import distill
 import store
@@ -36,6 +47,67 @@ STATIC_DIR = Path(__file__).parent / "static"
 NEWS_REFRESH_HOURS = 4
 
 app = Flask(__name__, static_folder=None)
+
+
+# ---------------------------------------------------------------------------
+# Auth gate (security-critical). Single-user password login in front of every
+# route. The app is intended to go to a public URL later, so an unauthenticated
+# visitor must reach NOTHING but the login page. Two secrets come from the env
+# (.env via load_dotenv): FLASK_SECRET_KEY signs the session cookie; GARDEN_PASSWORD
+# is the login password. Both are mandatory — if either is missing the app refuses
+# to start rather than falling open to no-auth. We never log/print either value;
+# the password is held only as a Werkzeug hash and compared in constant time.
+# ---------------------------------------------------------------------------
+
+# how a failed login is slowed / locked, in-memory (single-user app; per-process).
+FAILED_LOGIN_DELAY = 0.75   # seconds added to every failed attempt
+LOCKOUT_THRESHOLD = 5       # consecutive failures before a cooldown kicks in
+LOCKOUT_SECONDS = 60        # length of that cooldown
+_login_failures = 0
+_lockout_until = 0.0
+_login_lock = threading.Lock()
+
+
+def _configure_auth() -> str:
+    """Read the two required secrets from the env, wire up the session signing key,
+    and return the password HASH. Raises (refusing startup) if either is unset, so
+    the app never runs without auth. Neither secret is logged or returned in plaintext."""
+    secret = os.getenv("FLASK_SECRET_KEY")
+    if not secret:
+        raise RuntimeError(
+            "FLASK_SECRET_KEY is not set — refusing to start. Add it to .env "
+            "(see .env.example). The login gate will not run without it."
+        )
+    password = os.getenv("GARDEN_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "GARDEN_PASSWORD is not set — refusing to start. Add it to .env "
+            "(see .env.example). The app will not fall open to no-auth."
+        )
+    app.secret_key = secret
+    # HttpOnly + SameSite=Lax for the session cookie. (Set SESSION_COOKIE_SECURE=True
+    # once served over HTTPS; left off here so the cookie works over local http.)
+    app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+    return generate_password_hash(password)
+
+
+PASSWORD_HASH = _configure_auth()
+
+# Endpoints reachable while logged out. Deny-by-default: only the login view is
+# public, so every other route — current and future — is gated automatically.
+PUBLIC_ENDPOINTS = {"login"}
+
+
+@app.before_request
+def _require_login():
+    """Gate every request. Allow the login view and already-authenticated sessions
+    through; redirect everything else to /login with no body, so an unauthenticated
+    request leaks nothing (no partial JSON, no internal error)."""
+    if request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if session.get("authed"):
+        return None
+    return redirect(url_for("login"))
 
 
 EMAIL_CHROME = {"icon": "✉️", "iconBg": "#f7ecd2", "title": "Email"}
@@ -197,6 +269,57 @@ def build_state() -> dict:
     if fresh:
         store.set_kv("last_state", state)  # cache the last good payload
     return state
+
+
+def _render_login(error: str = "", status: int = 200):
+    template = (STATIC_DIR / "login.html").read_text(encoding="utf-8")
+    return render_template_string(template, error=error), status
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Single-field password login. On success, set the session flag and send the
+    user to the dashboard. Failed attempts are slowed by a fixed delay and locked out
+    after several in a row (in-memory) to blunt brute-forcing. The submitted password
+    and the stored hash are never logged."""
+    global _login_failures, _lockout_until
+
+    if request.method == "GET":
+        if session.get("authed"):
+            return redirect(url_for("index"))
+        return _render_login()
+
+    # POST — under cooldown? reject without even checking the password.
+    now = time.time()
+    with _login_lock:
+        locked = now < _lockout_until
+    if locked:
+        return _render_login("Too many attempts — wait a minute and try again.", 429)
+
+    password = request.form.get("password", "")
+    if check_password_hash(PASSWORD_HASH, password):
+        with _login_lock:
+            _login_failures = 0
+            _lockout_until = 0.0
+        session.clear()
+        session["authed"] = True
+        return redirect(url_for("index"))
+
+    # wrong password: slow it down, count it, maybe start a cooldown.
+    time.sleep(FAILED_LOGIN_DELAY)
+    with _login_lock:
+        _login_failures += 1
+        if _login_failures >= LOCKOUT_THRESHOLD:
+            _lockout_until = time.time() + LOCKOUT_SECONDS
+            _login_failures = 0
+    app.logger.warning("Failed login attempt")  # note: never logs the password
+    return _render_login("Incorrect password.", 401)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.route("/")
