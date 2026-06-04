@@ -85,9 +85,16 @@ def _configure_auth() -> str:
             "(see .env.example). The app will not fall open to no-auth."
         )
     app.secret_key = secret
-    # HttpOnly + SameSite=Lax for the session cookie. (Set SESSION_COOKIE_SECURE=True
-    # once served over HTTPS; left off here so the cookie works over local http.)
-    app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+    # HttpOnly + SameSite=Lax always. SESSION_COOKIE_SECURE (cookie only sent over
+    # HTTPS) is enabled in production and left off for local http dev, decided by the
+    # PRODUCTION env flag. Set PRODUCTION=1 in deployment (Railway serves over HTTPS);
+    # unset locally so the session cookie still works over http://127.0.0.1.
+    production = os.getenv("PRODUCTION", "").lower() in ("1", "true", "yes")
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=production,
+    )
     return generate_password_hash(password)
 
 
