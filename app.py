@@ -48,6 +48,14 @@ NEWS_REFRESH_HOURS = 4
 
 app = Flask(__name__, static_folder=None)
 
+# Ensure the SQLite schema exists at startup. garden.db is git-ignored, so a fresh
+# server (e.g. Railway) starts with no database; the first request would otherwise hit
+# `kv`/`items` before any init_db() and crash with "no such table". init_db() is
+# idempotent (CREATE TABLE IF NOT EXISTS), so locally — where the tables already
+# exist — this is a no-op and behavior is unchanged. Runs under gunicorn too, since
+# the __main__ block below doesn't execute there.
+store.init_db()
+
 
 # ---------------------------------------------------------------------------
 # Auth gate (security-critical). Single-user password login in front of every
