@@ -23,8 +23,9 @@ from flask import Flask, jsonify, send_from_directory
 import distill
 import store
 import triage
-from connectors import gcal, gmail, imessage, news
+from connectors import gcal, gmail, heartbeat, imessage, news
 from connectors.google_auth import NeedsAuth, get_credentials
+from connectors.heartbeat import HeartbeatUnavailable
 from connectors.imessage import MessagesUnavailable
 
 load_dotenv()  # ANTHROPIC_API_KEY etc. from .env (git-ignored)
@@ -201,6 +202,22 @@ def build_state() -> dict:
 @app.route("/")
 def index():
     return send_from_directory(STATIC_DIR, "garden-mockup.html")
+
+
+@app.route("/api/prices")
+def api_prices():
+    """SPY price history for the dashboard chart, pulled server-side from the private
+    heartbeat repo so the GitHub token never reaches the browser. Degrades gracefully:
+    a missing token or failed fetch returns an 'unavailable' flag (HTTP 200), not a 500,
+    so the chart area shows a small note instead of breaking the page."""
+    try:
+        return jsonify({"ticker": heartbeat.TICKER, "points": heartbeat.fetch_prices()})
+    except HeartbeatUnavailable as e:
+        app.logger.warning("Price history unavailable: %s", e)
+        return jsonify({"ticker": heartbeat.TICKER, "points": [], "unavailable": True})
+    except Exception:
+        app.logger.exception("api_prices failed")
+        return jsonify({"ticker": heartbeat.TICKER, "points": [], "unavailable": True})
 
 
 @app.route("/api/state")

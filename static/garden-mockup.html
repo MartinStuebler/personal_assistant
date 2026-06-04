@@ -94,6 +94,18 @@
 
   .sway{transform-box:fill-box;transform-origin:bottom center;animation:sway 5s ease-in-out infinite}
   @keyframes sway{0%,100%{transform:rotate(-2.5deg)}50%{transform:rotate(2.5deg)}}
+
+  /* price-history trellis: a full-width card matching the plots' aesthetic */
+  .trellis{
+    margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:20px;
+    box-shadow:0 10px 26px rgba(70,90,60,.09);padding:14px 18px 18px;
+  }
+  .trellis-head{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+  .trellis-head h3{font-family:'Fraunces',serif;font-weight:600;font-size:1.1rem}
+  .trellis-meta{margin-left:auto;font-size:.74rem;font-weight:700;color:var(--ink-soft);white-space:nowrap}
+  .trellis-chart svg{display:block;width:100%;height:auto}
+  .trellis-chart .axis{font-family:'Nunito',sans-serif;font-size:9px;font-weight:700;fill:var(--ink-soft)}
+  .trellis-note{display:flex;align-items:center;gap:8px;padding:18px 2px;color:var(--ink-soft);font-weight:700;font-size:.86rem}
 </style>
 </head>
 <body>
@@ -110,6 +122,16 @@
   <div class="status loading" id="status"><span class="pip"></span><span id="status-text">Tending the garden…</span></div>
 
   <div class="plots" id="plots"></div>
+
+  <!-- price history: a full-width trellis at the foot of the garden -->
+  <div class="trellis" id="trellis">
+    <div class="trellis-head">
+      <div class="icon" style="background:#e8eefb">📈</div>
+      <h3 id="trellis-title">Market</h3>
+      <span class="trellis-meta" id="trellis-meta"></span>
+    </div>
+    <div class="trellis-chart" id="trellis-chart"></div>
+  </div>
 </div>
 
 <script>
@@ -311,6 +333,80 @@ function wireHover(){
   });
 }
 
+/* ---------- price-history trellis (hand-rolled SVG, garden palette) ---------- */
+const CW=1040, CH=200, CM={t:16,r:14,b:24,l:44};  // chart canvas + margins (viewBox units)
+
+function shortTime(t){
+  // "2026-06-04T14:12Z" -> "6/4 14:12"; tolerate odd values by falling back to raw
+  const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(t||'');
+  return m ? `${+m[2]}/${+m[3]} ${m[4]}:${m[5]}` : (t||'');
+}
+
+function renderTrellis(data){
+  const chart=document.getElementById('trellis-chart');
+  const meta=document.getElementById('trellis-meta');
+  const title=document.getElementById('trellis-title');
+  const pts=(data&&data.points)||[];
+  title.textContent = (data&&data.ticker) || 'Market';
+
+  if(data&&data.unavailable || pts.length===0){
+    meta.textContent='';
+    chart.innerHTML=`<div class="trellis-note"><span>🥀</span> Price data unavailable</div>`;
+    return;
+  }
+
+  const prices=pts.map(p=>p.price);
+  let lo=Math.min(...prices), hi=Math.max(...prices);
+  if(lo===hi){ lo-=1; hi+=1; }                 // flat series: give it a little room
+  const pad=(hi-lo)*0.08; lo-=pad; hi+=pad;    // headroom so the line isn't glued to edges
+
+  const iw=CW-CM.l-CM.r, ih=CH-CM.t-CM.b;
+  const X=i=> CM.l + (pts.length<=1 ? iw/2 : i*iw/(pts.length-1));
+  const Y=v=> CM.t + ih - (v-lo)/(hi-lo)*ih;
+
+  const line=pts.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)} ${Y(p.price).toFixed(1)}`).join(' ');
+  const area=`${line} L${X(pts.length-1).toFixed(1)} ${(CM.t+ih).toFixed(1)} L${X(0).toFixed(1)} ${(CM.t+ih).toFixed(1)} Z`;
+
+  // a few horizontal gridlines + price labels
+  const ticks=4; let grid='';
+  for(let g=0;g<=ticks;g++){
+    const v=lo+(hi-lo)*g/ticks, y=Y(v).toFixed(1);
+    grid+=`<line x1="${CM.l}" y1="${y}" x2="${CW-CM.r}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
+    grid+=`<text class="axis" x="${CM.l-6}" y="${(+y+3).toFixed(1)}" text-anchor="end">${v.toFixed(0)}</text>`;
+  }
+
+  // x labels: first, middle, last (avoid crowding)
+  const idxs=[...new Set([0,Math.floor((pts.length-1)/2),pts.length-1])];
+  const xlabels=idxs.map(i=>`<text class="axis" x="${X(i).toFixed(1)}" y="${CH-6}" text-anchor="middle">${esc(shortTime(pts[i].t))}</text>`).join('');
+
+  const last=pts[pts.length-1], first=pts[0];
+  const delta=last.price-first.price, up=delta>=0;
+  meta.innerHTML=`<span style="color:var(--ink);font-weight:700">${last.price.toFixed(2)}</span> `+
+    `<span style="color:${up?'var(--leaf-deep)':'var(--alert)'}">${up?'▲':'▼'} ${Math.abs(delta).toFixed(2)}</span>`;
+
+  const stroke=up?'var(--leaf-deep)':'var(--terra-deep)';
+  const fill=up?'#4f8a5b':'#d98b5f';
+  chart.innerHTML=`<svg viewBox="0 0 ${CW} ${CH}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="price history">
+    <defs><linearGradient id="trellis-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${fill}" stop-opacity=".22"/><stop offset="1" stop-color="${fill}" stop-opacity="0"/></linearGradient></defs>
+    ${grid}
+    <path d="${area}" fill="url(#trellis-fill)"/>
+    <path d="${line}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${X(pts.length-1).toFixed(1)}" cy="${Y(last.price).toFixed(1)}" r="4" fill="${stroke}"/>
+    ${xlabels}
+  </svg>`;
+}
+
+async function loadPrices(){
+  try{
+    const r=await fetch('/api/prices',{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    renderTrellis(await r.json());
+  }catch(e){
+    renderTrellis({unavailable:true,points:[]});
+  }
+}
+
 /* ---------- fetch live state ---------- */
 function setStatus(kind,text){
   const el=document.getElementById('status');
@@ -334,8 +430,10 @@ async function load(){
 }
 
 load();
+loadPrices();
 // light background refresh keeps the view warm without nagging
 setInterval(load, 15*60*1000);
+setInterval(loadPrices, 5*60*1000);   // matches the backend's ~3-min cache
 </script>
 </body>
 </html>
