@@ -13,6 +13,7 @@ Uses thread metadata only (no bodies) — cheap and enough for the garden view.
 """
 
 import base64  # noqa: F401  (reserved for future body parsing; not used in v1 read-only metadata pull)
+import re
 import time
 from email.utils import parseaddr
 
@@ -26,6 +27,29 @@ AUTOMATED_LABELS = {
     "CATEGORY_SOCIAL",
 }
 
+# --- "Real people only" filter (PRD §6 escape hatch, email-specific) ----------
+# Goal: keep person-to-person mail in front; drop machine senders and bulk lists.
+# Three independent signals, strongest first — any one suppresses:
+#   1. Gmail category labels (Promotions/Updates) — Gmail already sorted these.
+#   2. List-Unsubscribe / Precedence:bulk headers — the RFC markers every mailing
+#      list and bulk sender sets; the single highest-precision "not a human" tell.
+#   3. The From address local-part — no-reply@, notifications@, mailer@, newsletter@…
+
+# Categories that are never person-to-person (per spec: Promotions + Updates only;
+# Forums/Social are left to land in front unless another signal catches them).
+SUPPRESS_CATEGORIES = {"CATEGORY_PROMOTIONS", "CATEGORY_UPDATES"}
+
+# Local-parts that are unambiguously a machine / no-reply / bulk sender — these
+# suppress on the address alone (e.g. no-reply@, notifications@, mailer-daemon@).
+_NONHUMAN_LOCALPART_RE = re.compile(
+    r"^(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply"
+    r"|notifications?|notify|alerts?"
+    r"|mailer([-_.]?daemon)?|bounces?|postmaster"
+    r"|news(letter)?|marketing|promo(tions?)?|offers?|deals?|digest"
+    r"|automated|auto[-_.]?(reply|confirm)?)([-_.+].*)?$",
+    re.I,
+)
+
 
 def _header(headers: list[dict], name: str) -> str:
     for h in headers:
@@ -37,6 +61,45 @@ def _header(headers: list[dict], name: str) -> str:
 def _display_name(from_header: str) -> str:
     name, email = parseaddr(from_header)
     return name or email or from_header
+
+
+def is_human(item: dict) -> tuple[bool, str]:
+    """Decide whether an email item looks person-to-person.
+
+    Returns (human, reason): reason names the suppression cause when human is
+    False (for the before/after audit), or '' when the sender looks human.
+    Reads only fields already on the item's `extra`, so it is pure and testable.
+    """
+    extra = item.get("extra") or {}
+    labels = set(extra.get("labels") or [])
+    addr = (extra.get("from_email") or "").lower()
+    local = addr.split("@", 1)[0] if "@" in addr else addr
+
+    cat = labels & SUPPRESS_CATEGORIES
+    if cat:
+        pretty = sorted(c.split("_")[-1].title() for c in cat)[0]
+        return False, f"category:{pretty}"
+    if extra.get("list_unsub"):
+        return False, "bulk:List-Unsubscribe"
+    if (extra.get("precedence") or "").lower() in ("bulk", "list", "junk"):
+        return False, f"bulk:Precedence={extra.get('precedence')}"
+    if local and _NONHUMAN_LOCALPART_RE.match(local):
+        return False, f"address:{local}@"
+    return True, ""
+
+
+def partition_humans(items: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split email items into (humans, suppressed). Suppressed items get
+    extra['suppressed_reason'] set so the audit view can show what was filtered."""
+    humans, suppressed = [], []
+    for it in items:
+        human, reason = is_human(it)
+        if human:
+            humans.append(it)
+        else:
+            ex = {**(it.get("extra") or {}), "suppressed_reason": reason}
+            suppressed.append({**it, "extra": ex})
+    return humans, suppressed
 
 
 def fetch(creds, window_seconds: int = 24 * 3600, max_threads: int = 500) -> list[dict]:
@@ -72,7 +135,7 @@ def fetch(creds, window_seconds: int = 24 * 3600, max_threads: int = 500) -> lis
                 userId="me",
                 id=t["id"],
                 format="metadata",
-                metadataHeaders=["From", "Subject", "Date"],
+                metadataHeaders=["From", "Subject", "Date", "List-Unsubscribe", "Precedence"],
             )
             .execute()
         )
@@ -84,6 +147,10 @@ def fetch(creds, window_seconds: int = 24 * 3600, max_threads: int = 500) -> lis
         last_headers = last.get("payload", {}).get("headers", [])
         from_hdr = _header(last_headers, "From")
         subject = _header(last_headers, "Subject") or "(no subject)"
+        # Fields the "real people only" filter (is_human) reads off `extra`.
+        from_email = (parseaddr(from_hdr)[1] or "").lower()
+        list_unsub = bool(_header(last_headers, "List-Unsubscribe"))
+        precedence = _header(last_headers, "Precedence")
 
         last_from_me = 1 if me_email and me_email.lower() in from_hdr.lower() else 0
 
@@ -110,6 +177,9 @@ def fetch(creds, window_seconds: int = 24 * 3600, max_threads: int = 500) -> lis
                     "snippet": last.get("snippet", ""),
                     "labels": sorted(all_labels),
                     "automated": automated,
+                    "from_email": from_email,
+                    "list_unsub": list_unsub,
+                    "precedence": precedence,
                 },
             }
         )

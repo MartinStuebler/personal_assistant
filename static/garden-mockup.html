@@ -258,7 +258,16 @@ function bedBody(key,cfg){
 
   if(isAct){
     const front=cfg.front||[], bg=cfg.background||[];
-    if(front.length===0){
+    if(cfg.stale){
+      // Frozen/unreadable source: never present it as the calm "nothing needs you".
+      badge=`<span class="state s-wilt">stale</span>`;
+      body=`<div class="clear-note" style="color:var(--wilt)"><span class="bud">⚠️</span> ${esc(cfg.hint||'Showing last known state — may be out of date')}</div>`;
+      front.forEach(f=>{
+        body+=`<div class="row"><span class="dot" style="background:${dotColor(f.level)}"></span>`+
+              `<div class="who">${esc(f.who)}</div>`+
+              `<span class="age">${esc(f.age||'')}</span></div>`;
+      });
+    } else if(front.length===0){
       badge=`<span class="state s-good">clear</span>`;
       body=`<div class="clear-note"><span class="bud">🌱</span> Nothing needs you</div>`;
       if(bg.length) body+=`<div class="meadow-note">${bg.length} tended this week</div>`;
@@ -295,8 +304,12 @@ function render(state){
   document.getElementById('hello').innerHTML = meta.greeting || 'Good morning.';
   document.getElementById('weather').innerHTML = meta.weather || '🌱';
 
-  // all-clear when no actionable bed has front items
-  const allClear = [...ACTIONABLE].every(k => !(beds[k] && (beds[k].front||[]).length));
+  // all-clear when no actionable bed has front items AND none is stale (a stale
+  // bed must not let the page go falsely serene over possibly-frozen data).
+  const allClear = [...ACTIONABLE].every(k => {
+    const b = beds[k]; if(!b) return true;
+    return !b.stale && !(b.front||[]).length;
+  });
   document.body.classList.toggle('allclear', allClear);
 
   const plots=document.getElementById('plots');

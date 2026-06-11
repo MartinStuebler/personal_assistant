@@ -35,6 +35,7 @@ import logging
 import os
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -143,13 +144,22 @@ def get_credentials(interactive: bool = False) -> Credentials:
         return creds
 
     if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        _save_token(creds)
-        return creds
+        try:
+            creds.refresh(Request())
+            _save_token(creds)
+            return creds
+        except RefreshError as e:
+            # The refresh token is dead — revoked, or (the common case) expired because
+            # the OAuth app is still in "Testing", where Google caps refresh tokens at
+            # 7 days. Don't crash on it: fall through to the consent flow (interactive)
+            # or to NeedsAuth (server path) so re-auth can recover instead of erroring.
+            logger.warning("Token refresh failed (%s); re-authorization required.", e)
+            creds = None
 
     if not interactive:
         raise NeedsAuth(
-            "Gmail/Calendar not authorized yet. Run:  python -m connectors.google_auth"
+            "Gmail/Calendar not authorized yet (or the saved token was revoked/expired). "
+            "Run:  python -m connectors.google_auth"
         )
 
     flow = InstalledAppFlow.from_client_secrets_file(_client_secret_path(), SCOPES)

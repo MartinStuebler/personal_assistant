@@ -9,12 +9,20 @@ live on shared/secondary calendars like "Social planning") and normalizes each:
   ts       unix start time (all-day events sort to start of day)
   extra    {time: "HH:MM" or "all-day", all_day: bool, calendar: source name}
 
-Today's window is local-midnight to next-local-midnight, timezone-aware.
+Every event is rendered in DISPLAY_TZ (America/New_York) regardless of the source
+calendar's tz OR the host process's tz. This matters on a UTC server (e.g. Railway/
+gunicorn): bare datetime.astimezone() would resolve to the host tz, so a 9pm-ET event
+would render as next-day UTC and surface on the wrong day. Pinning the tz fixes that.
+Today's window is DISPLAY_TZ-midnight to next DISPLAY_TZ-midnight.
 """
 
 from datetime import datetime, time as dtime, timedelta
+from zoneinfo import ZoneInfo
 
 from googleapiclient.discovery import build
+
+# The single timezone every event is displayed in, independent of host or source cal.
+DISPLAY_TZ = ZoneInfo("America/New_York")
 
 # Calendars to skip when merging: purely decorative subscriptions that aren't real
 # appointments (week-number overlays). Matched as a substring against the calendar id.
@@ -22,10 +30,9 @@ SKIP_CALENDAR_IDS = ("weeknum",)
 
 
 def _local_day_bounds():
-    """Return (start, end) of today as timezone-aware datetimes in the local tz."""
-    now = datetime.now().astimezone()
-    tz = now.tzinfo
-    start = datetime.combine(now.date(), dtime.min, tzinfo=tz)
+    """Return (start, end) of today as DISPLAY_TZ-aware datetimes (not host-local)."""
+    now = datetime.now(DISPLAY_TZ)
+    start = datetime.combine(now.date(), dtime.min, tzinfo=DISPLAY_TZ)
     end = start + timedelta(days=1)
     return start, end
 
@@ -55,13 +62,14 @@ def _normalize(ev: dict, cal_name: str, cal_id: str) -> dict:
 
     if "dateTime" in start_info:
         # The API returns each event in its calendar's own tz (e.g. a LA-based shared
-        # calendar yields -07:00); convert to local tz so the displayed time is right.
-        dt = datetime.fromisoformat(start_info["dateTime"]).astimezone()
+        # calendar yields -07:00). Convert to DISPLAY_TZ — NOT bare .astimezone(), which
+        # would follow the host tz and mis-place events on a non-ET server.
+        dt = datetime.fromisoformat(start_info["dateTime"]).astimezone(DISPLAY_TZ)
         time_str = dt.strftime("%H:%M")
         ts = int(dt.timestamp())
         all_day = False
-    else:  # all-day event: {"date": "YYYY-MM-DD"}
-        d = datetime.fromisoformat(start_info["date"]).astimezone()
+    else:  # all-day event: {"date": "YYYY-MM-DD"} — anchor at DISPLAY_TZ midnight.
+        d = datetime.fromisoformat(start_info["date"]).replace(tzinfo=DISPLAY_TZ)
         time_str = "all-day"
         ts = int(d.timestamp())
         all_day = True

@@ -87,6 +87,16 @@ def replace_source(source: str, items: list[dict]) -> None:
         )
 
 
+def source_updated_at(source: str) -> int | None:
+    """Most recent updated_at across a source's rows, or None if it has none.
+    Lets callers tell a freshly-pulled bed from one showing frozen/stale data."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(updated_at) AS mu FROM items WHERE source = ?", (source,)
+        ).fetchone()
+        return row["mu"] if row and row["mu"] is not None else None
+
+
 def get_items(source: str) -> list[dict]:
     with _connect() as conn:
         cur = conn.execute(

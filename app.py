@@ -243,22 +243,30 @@ def build_state() -> dict:
                 app.logger.warning("Pull failed for %s: %s", source, e)
                 fresh = False
 
-    # Messages: local read-only pull (PRD §4.3). FDA denial is a persistent config
-    # state, not transient staleness, so we surface it via logs and an empty bed
-    # rather than flipping the whole page to "stale".
+    # Messages: local read-only pull (PRD §4.3). If the pull fails (FDA denied, or
+    # running on a host with no chat.db at all, e.g. Railway), we keep the last-stored
+    # rows — but those can be days old. An empty front over frozen data must NOT read
+    # as the calm "nothing needs you"; we flag the bed stale so the UI shows a warning
+    # instead. A failed pull doesn't flip the whole page stale (it's a per-bed state).
+    messages_stale = False
     try:
         store.replace_source("messages", imessage.fetch())
     except MessagesUnavailable as e:
         app.logger.warning("Messages unavailable: %s", e)
+        messages_stale = True
     except Exception as e:
         app.logger.warning("Pull failed for messages: %s", e)
-        fresh = False
+        messages_stale = True
 
-    # Email: raw baseline — show the complete inbox, nothing hidden. Inbound thread
-    # = front plant; a thread I've replied to = meadow. No category/read/sender/age
-    # filtering (filters get reintroduced deliberately later).
+    # Email: "real people only" — suppress no-reply/notifications addresses, Gmail
+    # Promotions/Updates categories, and bulk-list senders (List-Unsubscribe /
+    # Precedence:bulk) so only person-to-person mail reaches the bed. The surviving
+    # humans keep the raw front/meadow split (inbound = front, replied = meadow).
+    human_email, suppressed_email = gmail.partition_humans(store.get_items("email"))
+    if suppressed_email:
+        app.logger.info("Email filter: hid %d non-human sender(s)", len(suppressed_email))
     email = triage.triage_actionable(
-        store.get_items("email"),
+        human_email,
         require_unread=False,
         apply_mute=False,
         background_window=None,
@@ -267,6 +275,17 @@ def build_state() -> dict:
     messages = triage.triage_actionable(
         store.get_items("messages"), front_window=triage.MESSAGES_FRONT_WINDOW
     )
+    if messages_stale:
+        last = store.source_updated_at("messages")
+        if last:
+            d = datetime.fromtimestamp(last)
+            # %-d/%-I are platform-specific (see _meta); build it portably.
+            hour12 = d.hour % 12 or 12
+            synced = f"{d.strftime('%b')} {d.day}, {hour12}:{d.strftime('%M %p')}"
+        else:
+            synced = "never"
+        messages["stale"] = True
+        messages["hint"] = f"Can’t read Messages right now — last synced {synced}."
     events = triage.calendar_events(store.get_items("calendar"))
     # News is read from the cache ONLY — the scheduler pulls + distills it out of band.
     news_list = triage.news_items(store.get_items("news"), store.get_distilled_map())
