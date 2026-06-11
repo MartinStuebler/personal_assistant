@@ -11,3 +11,8 @@ python-dotenv>=1.0       # load ANTHROPIC_API_KEY from .env
 
 # Deployment — production WSGI server (Railway runs `gunicorn app:app`):
 gunicorn>=21.0
+
+# IANA timezone database for zoneinfo. The calendar pins events to America/New_York
+# (connectors/gcal.py); without the system tz data a minimal Linux container (Railway)
+# would raise ZoneInfoNotFoundError. Declaring it guarantees the lookup on any host.
+tzdata>=2024.1
