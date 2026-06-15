@@ -4,6 +4,10 @@ A calm, local-only morning dashboard. Pulls your real accounts (read-only) and s
 what needs attention as a small garden: things needing you stand upright in front;
 things you've handled this week recede into a paler background **meadow**.
 
+<img width="2480" height="1120" alt="assistant_dashboard_flow" src="https://github.com/user-attachments/assets/21802edd-f07d-40b1-aeac-30d93ae42fe3" />
+
+
+
 See [`PRD.md`](./PRD.md) for the full spec.
 
 ## Status
